@@ -5,7 +5,6 @@ import org.objectweb.asm.Opcodes;
 import org.objectweb.asm.tree.*;
 import org.apache.commons.io.IOUtils;
 import java.io.*;
-import java.lang.reflect.Method;
 import java.util.*;
 import java.util.jar.*;
 
@@ -14,8 +13,29 @@ public class Main {
     private static Random random2;
     private static int mode;
     private static int intensity;
+    private static final List<Integer> intMath = new ArrayList<>();
+    private static final List<Integer> longMath = new ArrayList<>();
+    private static final List<Integer> floatMath = new ArrayList<>();
+    private static final List<Integer> doubleMath = new ArrayList<>();
 
     public static void main(String[] args) throws Exception {
+        intMath.add(Opcodes.IADD);
+        intMath.add(Opcodes.ISUB);
+        intMath.add(Opcodes.IMUL);
+        intMath.add(Opcodes.IDIV);
+        longMath.add(Opcodes.LADD);
+        longMath.add(Opcodes.LSUB);
+        longMath.add(Opcodes.LMUL);
+        longMath.add(Opcodes.LDIV);
+        floatMath.add(Opcodes.FADD);
+        floatMath.add(Opcodes.FSUB);
+        floatMath.add(Opcodes.FMUL);
+        floatMath.add(Opcodes.FDIV);
+        doubleMath.add(Opcodes.DADD);
+        doubleMath.add(Opcodes.DSUB);
+        doubleMath.add(Opcodes.DMUL);
+        doubleMath.add(Opcodes.DDIV);
+
         String inPath = args[0];
         String outPath = args[1];
         random1 = new Random(Long.parseLong(args[2]));
@@ -75,55 +95,59 @@ public class Main {
         else
             return insn;
     }
-    private static InsnList mathAfterMath(AbstractInsnNode insn, float max, float min, String math) {
+    private static InsnList arithmetic(AbstractInsnNode insn, float max, float min, List<Integer> limiters, List<Integer> operations, int types) {
         InsnList insnList = new InsnList();
+        insnList.add(insn);
 
-        switch (insn.getOpcode()) {
-            case Opcodes.FADD:
-            case Opcodes.FSUB:
-            case Opcodes.FMUL:
-            case Opcodes.FDIV:
-                float f = random2.nextFloat();
+        int opcode = insn.getOpcode();
+        if (opcode < 0x60 || opcode > 0x6f)
+            return insnList;
 
-                if (f > 0)  // Maximum value
-                    insnList.add(new LdcInsnNode(f % max));
-                else        // Minimum value
-                    insnList.add(new LdcInsnNode(f % min));
+        float f = random2.nextFloat();
+        float value = f > 0 ? f % max : f % min;
+        int operation = (operations.get(random2.nextInt(operations.size())) * 4);
 
-                if (math.equals("random")) {
-                    List<Integer> fMath = new ArrayList<>();
-                    fMath.add(Opcodes.FADD);
-                    fMath.add(Opcodes.FSUB);
-                    fMath.add(Opcodes.FMUL);
-                    fMath.add(Opcodes.FDIV);
-                    insnList.add(new InsnNode(fMath.get(random2.nextInt(4))));
-                } else
-                    insnList.add(new InsnNode(Integer.parseInt(math))); // The float math instruction will be sent here
-                break;
-            case Opcodes.DADD:
-            case Opcodes.DSUB:
-            case Opcodes.DMUL:
-            case Opcodes.DDIV:
-                double d = random2.nextDouble();
-
-                if (d > 0)  // Maximum value
-                    insnList.add(new LdcInsnNode(d % (double)max));
-                else        // Minimum value
-                    insnList.add(new LdcInsnNode(d % (double)min));
-
-                if (math.equals("random")) {
-                    List<Integer> dMath = new ArrayList<>();
-                    dMath.add(Opcodes.DADD);
-                    dMath.add(Opcodes.DSUB);
-                    dMath.add(Opcodes.DMUL);
-                    dMath.add(Opcodes.DDIV);
-                    insnList.add(new InsnNode(dMath.get(random2.nextInt(4))));
-                } else
-                    insnList.add(new InsnNode(Integer.parseInt(math) + 1)); // Adding 1 makes it the equivalent double math instruction
-                break;
+        //TODO: this could probably be a loop or something, but it's 3am and i'm too tired to think
+        switch ((opcode - 0x60) % 4) {
+            case 0:
+                if (limiters.contains(0) && (types & 1) == 1) {
+                    insnList.add(new LdcInsnNode((int) value));
+                    insnList.add(new InsnNode(operation + 0x60));
+                }
+                return insnList;
+            case 1:
+                if (limiters.contains(1) && (types & 2) == 2) {
+                    insnList.add(new LdcInsnNode((long) value));
+                    insnList.add(new InsnNode(operation + 0x61));
+                }
+                return insnList;
+            case 2:
+                if (limiters.contains(2) && (types & 4) == 4) {
+                    insnList.add(new LdcInsnNode(value));
+                    insnList.add(new InsnNode(operation + 0x62));
+                }
+                return insnList;
+            case 3:
+                if (limiters.contains(3) && (types & 8) == 8) {
+                    insnList.add(new LdcInsnNode(value));
+                    insnList.add(new InsnNode(operation + 0x63));
+                }
+                return insnList;
         }
 
         return insnList;
+    }
+    private static InsnList function(MethodInsnNode insn, List<String> limiters, List<String> values) {
+        InsnList list = new InsnList();
+        if (limiters.contains(insn.name)) {
+            String newMethod = values.get(random2.nextInt(values.size()));
+            if (newMethod.equals("POP, random()")) {
+                list.add(new InsnNode(Opcodes.POP));
+                list.add(new MethodInsnNode(Opcodes.INVOKESTATIC, "java/lang/Math", "random", "()D", false));
+            } else
+                list.add(new MethodInsnNode(insn.getOpcode(), insn.owner, newMethod, insn.desc, false));
+        }
+        return list;
     }
 
     private static void corrupt(ClassNode clazz, String[] args) {
@@ -141,102 +165,40 @@ public class Main {
                         break;
                     }
                     case 1: {
-                        insnList.add(insnNode);
-                        insnList.add(mathAfterMath(insnNode, Float.parseFloat(args[6]), Float.parseFloat(args[7]), args[8]));
+                        List<Integer> limiters = new ArrayList<>();
+                        List<Integer> operations = new ArrayList<>();
+                        int i = 8;
+                        for (; !args[i].equals(":"); i++)
+                            limiters.add(Integer.parseInt(args[i]));
+                        i++;
+                        for (; !args[i].equals(":"); i++)
+                            operations.add(Integer.parseInt(args[i]));
+                        i++;
+
+                        insnList.add(arithmetic(insnNode, Float.parseFloat(args[6]), Float.parseFloat(args[7]), limiters, operations, Integer.parseInt(args[i])));
                         break;
                     }
                     case 2: {
-                        int opcode = insnNode.getOpcode();
-
-                        switch (opcode) {
-                            case Opcodes.FADD:
-                            case Opcodes.DADD:
-                                insnList.add(new InsnNode(insnNode.getOpcode() + 4));
-                                break;
-                            case Opcodes.DSUB:
-                            case Opcodes.FSUB:
-                                insnList.add(new InsnNode(insnNode.getOpcode() - 4));
-                                break;
-                            default:
-                                insnList.add(insnNode);
-                                break;
-                        }
-
-                        break;
-                    }
-                    case 3: {
-                        List<Integer> f = new ArrayList<>();
-                        f.add(Opcodes.FADD);
-                        f.add(Opcodes.FSUB);
-                        f.add(Opcodes.FMUL);
-                        f.add(Opcodes.FDIV);
-                        List<Integer> d = new ArrayList<>();
-                        d.add(Opcodes.DADD);
-                        d.add(Opcodes.DSUB);
-                        d.add(Opcodes.DMUL);
-                        d.add(Opcodes.DDIV);
-
-                        if (f.contains(insnNode.getOpcode()))
-                            insnList.add(new InsnNode(f.get(random2.nextInt(f.size()))));
-                        else if (d.contains(insnNode.getOpcode()))
-                            insnList.add(new InsnNode(d.get(random2.nextInt(d.size()))));
-                        else
+                        if (insnNode.getOpcode() != Opcodes.INVOKESTATIC) {
                             insnList.add(insnNode);
-
-                        break;
-                    }
-                    case 4: {
-                        int opcode = insnNode.getOpcode();
-
-
-                        if (insnNode.getOpcode() == Opcodes.LDC) {
-                            LdcInsnNode ldcInsnNode = (LdcInsnNode) insnNode;
-                            if (ldcInsnNode.cst instanceof Float) {
-                                float value = (float) ldcInsnNode.cst;
-                                float divergence = Float.parseFloat(args[6]) / 100;
-                                insnList.add(new LdcInsnNode(value + (random2.nextFloat() % (value * divergence * 2) - value * divergence)));
-                                //the above equation makes the new value be between value - divergence% of value and value + divergence% of value
-                                //i.e. if value = 100 and divergence = 0.1, the new value will be between 90 and 109.̅9
-                            }
-                            else if (ldcInsnNode.cst instanceof Double) {
-                                double cst = (double) ldcInsnNode.cst;
-                                double divergence = Double.parseDouble(args[6]) / 100;
-                                insnList.add(new LdcInsnNode(cst + (random2.nextDouble() % (cst * divergence * 2) - cst * divergence)));
-                            }
-                            else {
-                                insnList.add(insnNode);
-                            }
+                            break;
                         }
-                        else if (opcode == Opcodes.FCONST_1 || opcode == Opcodes.FCONST_2) {
-                            float value = opcode - Opcodes.FCONST_0; // 1, 2
-                            float divergence = Float.parseFloat(args[6]) / 100;
-                            insnList.add(new LdcInsnNode(value + (random2.nextFloat() % (value * divergence * 2) - value * divergence)));
-                        }
-                        else if (opcode == Opcodes.DCONST_1) {
-                            double value = opcode - Opcodes.DCONST_0; // 1
-                            double divergence = Double.parseDouble(args[6]) / 100;
-                            insnList.add(new LdcInsnNode(value + (random2.nextDouble() % (value * divergence * 2) - value * divergence)));
-                        }
-                        else { //don't bother with FCONST_0 and DCONST_0, the equation will always result in 0
+                        MethodInsnNode methodInsnNode = (MethodInsnNode) insnNode;
+                        if (!methodInsnNode.owner.equals("java/lang/Math")) {
                             insnList.add(insnNode);
+                            break;
                         }
 
-                        break;
-                    }
-                    case 5: {
-                        if (insnNode.getOpcode() == Opcodes.INVOKESTATIC) {
-                            MethodInsnNode methodInsnNode = (MethodInsnNode) insnNode;
-                            if (!methodInsnNode.owner.equals("java/lang/Math")) {
-                                insnList.add(insnNode);
-                                break;
-                            }
-                            if (methodInsnNode.name.equals("sin")) {
-                                methodInsnNode.name = "cos";
-                            } else if (methodInsnNode.name.equals("cos")) {
-                                methodInsnNode.name = "sin";
-                            }
-                        }
-                        insnList.add(insnNode);
+                        List<String> limiters = new ArrayList<>();
+                        List<String> values = new ArrayList<>();
+                        int i = 6;
+                        for (; !args[i].equals(":"); i++)
+                            limiters.add(args[i]);
+                        i++;
+                        for (; !args[i].equals(":"); i++)
+                            values.add(args[i]);
+
+                        insnList.add(function(methodInsnNode, limiters, values));
 
                         break;
                     }
