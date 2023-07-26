@@ -12,7 +12,7 @@ public class Main {
     private static Random random1;
     private static Random random2;
     private static int mode;
-    private static int intensity;
+    private static double intensity;
     private static final List<Integer> intMath = new ArrayList<>();
     private static final List<Integer> longMath = new ArrayList<>();
     private static final List<Integer> floatMath = new ArrayList<>();
@@ -41,7 +41,7 @@ public class Main {
         random1 = new Random(Long.parseLong(args[2]));
         random2 = new Random(Long.parseLong(args[3]));
         mode = Integer.parseInt(args[4]);
-        intensity = Integer.parseInt(args[5]);
+        intensity = Double.parseDouble(args[5]);
 
         Map<String, byte[]> modifiedClasses = new HashMap<>();
         Map<String, byte[]> resources = new HashMap<>();
@@ -89,7 +89,7 @@ public class Main {
     }
 
     private static AbstractInsnNode vector(AbstractInsnNode insn, int limiter, int value) {
-        // TODO: make this way more versatile
+        // TODO: so much
         if (insn.getOpcode() == limiter)
             return new InsnNode(value);
         else
@@ -102,34 +102,36 @@ public class Main {
         int opcode = insn.getOpcode();
         if (opcode < 0x60 || opcode > 0x6f)
             return insnList;
+        if (!limiters.contains(opcode - 0x60 - ((opcode - 0x60) % 4))) //from 0x60-0x6f, each grouping of 4 is the I,L,F, and D instructions of each operation.
+            return insnList;
 
         float f = random2.nextFloat();
-        float value = f > 0 ? f % max : f % min;
-        int operation = (operations.get(random2.nextInt(operations.size())) * 4);
+        float value = f > 0 ? f * max : f * -min;
+        int operation = (operations.get(random2.nextInt(operations.size())));
 
         //TODO: this could probably be a loop or something, but it's 3am and i'm too tired to think
         switch ((opcode - 0x60) % 4) {
             case 0:
-                if (limiters.contains(0) && (types & 1) == 1) {
+                if ((types & 1) == 1) {
                     insnList.add(new LdcInsnNode((int) value));
                     insnList.add(new InsnNode(operation + 0x60));
                 }
                 return insnList;
             case 1:
-                if (limiters.contains(1) && (types & 2) == 2) {
+                if ((types & 2) == 2) {
                     insnList.add(new LdcInsnNode((long) value));
                     insnList.add(new InsnNode(operation + 0x61));
                 }
                 return insnList;
             case 2:
-                if (limiters.contains(2) && (types & 4) == 4) {
+                if ((types & 4) == 4) {
                     insnList.add(new LdcInsnNode(value));
                     insnList.add(new InsnNode(operation + 0x62));
                 }
                 return insnList;
             case 3:
-                if (limiters.contains(3) && (types & 8) == 8) {
-                    insnList.add(new LdcInsnNode(value));
+                if ((types & 8) == 8) {
+                    insnList.add(new LdcInsnNode((double)value));
                     insnList.add(new InsnNode(operation + 0x63));
                 }
                 return insnList;
@@ -141,11 +143,15 @@ public class Main {
         InsnList list = new InsnList();
         if (limiters.contains(insn.name)) {
             String newMethod = values.get(random2.nextInt(values.size()));
-            if (newMethod.equals("POP, random()")) {
+            if (newMethod.equals("POP,random()")) {
                 list.add(new InsnNode(Opcodes.POP));
                 list.add(new MethodInsnNode(Opcodes.INVOKESTATIC, "java/lang/Math", "random", "()D", false));
-            } else
-                list.add(new MethodInsnNode(insn.getOpcode(), insn.owner, newMethod, insn.desc, false));
+            } else {
+                insn.name = newMethod;
+                list.add(insn);
+            }
+        } else {
+            list.add(insn);
         }
         return list;
     }
@@ -155,7 +161,7 @@ public class Main {
             final InsnList insnList = new InsnList();
 
             methodNode.instructions.forEach(insnNode -> {
-                if (random1.nextInt(intensity) != 0) {
+                if (random1.nextDouble() > intensity) {
                     insnList.add(insnNode);
                     return;
                 }
@@ -184,7 +190,7 @@ public class Main {
                             break;
                         }
                         MethodInsnNode methodInsnNode = (MethodInsnNode) insnNode;
-                        if (!methodInsnNode.owner.equals("java/lang/Math")) {
+                        if (!methodInsnNode.owner.equals("java/lang/Math") || !methodInsnNode.desc.equals("(D)D")) {
                             insnList.add(insnNode);
                             break;
                         }
